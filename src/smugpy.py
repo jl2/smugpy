@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python 
+#!/usr/bin/env python 
 # -*- coding: utf-8 -*- 
 
 import binascii
@@ -22,7 +22,7 @@ except ImportError:
 __version__ = "0.2.1"
 
 class SmugMug(object):
-    def __init__(self, api_key=None, oauth_secret=None, api_version="1.2.2", secure=False,
+    def __init__(self, api_key=None, oauth_secret=None, api_version="1.3.0", secure=False,
                  session_id=None, oauth_token=None, oauth_token_secret=None, app_name="Unknown App"):
         """Initializes a session."""
         self.api_key = api_key
@@ -39,6 +39,18 @@ class SmugMug(object):
         
         if oauth_secret is not None and not self.check_version(min="1.2.2"):
             raise SmugMugException("Oauth only supported in API versions 1.2.2+")
+
+    def __getstate__(self):
+      """Provide getstate for pickling the object.
+
+      Without __getstate__ pickle will try to use __getattr__ which has
+      side-effects unexpected by pickle
+      """
+      return self.__dict__
+
+    def __setstate__(self, state):
+      """Provide setstate for unpickling"""
+      self.__dict__.update(state)
 
     def __getattr__(self, method, **args):
         """Construct a dynamic handler for the SmugMug API.
@@ -123,7 +135,7 @@ class SmugMug(object):
             kwargs["FileName"] = os.path.basename(kwargs["File"])
         
         # Upload Url
-        url = "http://upload.smugmug.com/%s" % kwargs["FileName"]
+        url = "http://upload.smugmug.com/%s" % urllib.parse.quote(kwargs["FileName"])
 
         # Read file in binary mode
         f = open(kwargs["File"], "rb")
@@ -180,7 +192,7 @@ class SmugMug(object):
                 kwargs.update(dict(APIKey=self.api_key))
             elif self.check_version(max="1.2.2") and self.session_id:
                 kwargs.update(dict(SessionID=self.session_id))
-            
+
             rsp = self._fetch_url(url, urllib.parse.urlencode(kwargs))
             
             return self._handle_response(rsp)
@@ -217,7 +229,7 @@ class SmugMug(object):
             oauth_consumer_key=self.api_key,
             oauth_signature_method="HMAC-SHA1",
             oauth_timestamp=str(int(time.time())),
-            oauth_nonce=binascii.b2a_hex(uuid.uuid4().bytes),
+            oauth_nonce=binascii.b2a_hex(uuid.uuid4().bytes).decode('utf8'),
             oauth_version="1.0",
         )
         if self.oauth_token: base_args["oauth_token"]=self.oauth_token
@@ -225,7 +237,7 @@ class SmugMug(object):
         args.update(base_args)
         args.update(parameters)
         signature = self._oauth_signature(method, url, args)
-        base_args["oauth_signature"] = signature
+        base_args["oauth_signature"] = signature.decode('utf8')
         return base_args
 
     def _oauth_signature(self, method, url, parameters={}):
@@ -245,12 +257,12 @@ class SmugMug(object):
         key_elems.append(self.oauth_token_secret if self.oauth_token_secret else "")
         key = "&".join(key_elems)
         
-        hash = hmac.new(key, base_string, hashlib.sha1)
+        hash = hmac.new(key.encode('utf8'), base_string.encode('utf8'), hashlib.sha1)
         return binascii.b2a_base64(hash.digest())[:-1]
     
     def _fetch_url(self, url, body, header={}, method="POST"):
         header.update({"User-Agent": self.application})
-        req = urllib.request.Request(url, body, header)
+        req = urllib.request.Request(url, body.encode('utf8'), header)
         if method == "PUT":
             req.get_method = lambda: "PUT"
         return urllib.request.urlopen(req).read()
